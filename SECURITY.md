@@ -82,10 +82,19 @@ gh attestation verify dist/index.js --repo <org>/<repo>
 
 2. **提交签名要求** — 启用 "Require signed commits"。
 
-3. **Actions 通用设置**：
+3. **Actions 通用设置（Workflow permissions）**：
    - 禁用 `pull_request_target` 触发器（防止密钥泄露）
-   - 限制 Actions 令牌权限为只读（默认）
-   - 确认 OIDC 已启用（`id-token: write` 依赖）
+   - **将 Workflow permissions 保持/收紧为只读**。个人账号新建仓库默认即为 `contents`/`packages` 只读；
+     组织内仓库继承组织配置，若组织默认为 "Read and write"，应主动收紧。
+   - **不要**勾选 "Allow GitHub Actions to create and approve pull requests"
+     （该开关允许 Actions 自动批准 PR，会绕过 CODEOWNERS 双人审查）。
+
+   > ⛔ **反模式**：为"让 OIDC / Attestations 生效"而把全局权限改为 "Read and write" 是**错误且有害**的。
+   > `GITHUB_TOKEN` 权限按「仓库默认 → workflow 顶层 → job 级」顺序计算，本流水线已在 `provenance` job
+   > 显式声明 `id-token: write` + `attestations: write`，**无需放宽全局设置**。
+   > 且 `id-token` 从不由该读写开关自动授予——使用 `permissions` 键后，
+   > 未列出的范围一律为 `none`，只能靠显式声明获得。
+   > 详见 `SLSA-L3-Compliance-Report.html` 第 4 节。
 
 4. **GitHub Artifact Attestations**：
    - 公共仓库所有计划可用
