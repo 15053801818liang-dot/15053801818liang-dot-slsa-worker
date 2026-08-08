@@ -1,0 +1,19 @@
+# 强制 LF 换行符 — 可复现构建（跨平台一致性）
+* text=auto eol=lf
+
+# 源码与配置明确 LF
+*.ts   text eol=lf
+*.js   text eol=lf
+*.mjs  text eol=lf
+*.json text eol=lf
+*.jsonc text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.md   text eol=lf
+*.sh   text eol=lf
+*.toml text eol=lf
+
+# 二进制不转换
+*.png binary
+*.jpg binary
+*.woff2 binary
