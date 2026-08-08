@@ -11,6 +11,11 @@
 #                  actions/attest-build-provenance 生成 Sigstore keyless 签名
 #                  build 步骤无 id-token 权限，无法伪造溯源
 #   ④ 源码审计  → 仅由 Git 提交触发；checkout 禁用持久凭据
+#   ⑤ 产物-部署一致性 → deploy 不重新构建，而是 download-artifact 取回
+#                  被签名的同一份字节，并以阻断式 gh attestation verify 为门禁，
+#                  失败即中止部署。避免"签了 A、上线 B"的溯源链断裂。
+#   ⑥ 负向自检  → canary job 以正向/反向对照证明溯源机制真实有效；
+#                  build job 以运行时探测证明 OIDC 令牌确实不可达。
 # -----------------------------------------------------------------------------
 # 【权限模型说明 — 请勿放宽仓库全局设置】
 #   GITHUB_TOKEN 权限的计算顺序（GitHub 官方文档）：
@@ -61,9 +66,29 @@ jobs:
     permissions:
       contents: read
     outputs:
+      # 注：hashes 仅供文末注释中的 slsa-github-generator 备选方案消费。
+      #     当前主路径由 provenance job 以 subject-path 独立重算摘要，不消费此输出，
+      #     因此被投毒的构建无法通过"谎报摘要"影响溯源绑定。
       hashes: ${{ steps.hash.outputs.hashes }}
       artifact-name: worker-bundle
     steps:
+      - name: 🐤 Canary — 运行时证明 OIDC 令牌不可达
+        shell: bash
+        run: |
+          set -uo pipefail
+          # 本 job 未声明 id-token 权限，GitHub 不应注入 OIDC 请求变量。
+          # 若任一变量存在，说明权限模型已被破坏：构建步骤将能向 Sigstore
+          # 申请签名证书并伪造溯源，必须立即中止整条流水线。
+          # 这一步把"声明层面无 id-token"升级为"运行时已验证"。
+          leak=0
+          if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then leak=1; fi
+          if [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then leak=1; fi
+          if [ "$leak" -ne 0 ]; then
+            echo "::error::权限模型失效：build job 可获取 OIDC 令牌，存在伪造溯源风险"
+            exit 1
+          fi
+          echo "✅ OIDC 令牌不可达 —— 构建步骤在运行时确实无法申请 Sigstore 签名证书"
+
       - name: Checkout（不持久化凭据）
         uses: actions/checkout@v4
         with:
@@ -154,19 +179,72 @@ jobs:
   # ===========================================================================
 
   # ---------------------------------------------------------------------------
-  # 部署：仅在 main，密钥隔离，依赖溯源成功
+  # Canary：用正向/反向对照证明溯源机制真实有效（而非仅"已配置"）
   # ---------------------------------------------------------------------------
+  # 此 job 不产出任何东西，唯一职责是充当"验证的验证"。若溯源机制形同虚设
+  # （例如篡改后仍能通过校验），deploy 的门禁也就毫无意义，故 deploy 依赖它。
+  canary:
+    name: Canary (溯源机制正/反向对照)
+    needs: provenance
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: read   # 只读：拉取 attestation 供校验，无签名能力
+    steps:
+      - name: 下载被签名的构建产物
+        uses: actions/download-artifact@v4
+        with:
+          name: worker-bundle
+          path: dist
+
+      - name: 正向对照 — 原始产物必须通过校验
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh attestation verify dist/index.js \
+            --repo "${{ github.repository }}" \
+            --signer-workflow "${{ github.repository }}/.github/workflows/build-release.yml" \
+            --deny-self-hosted-runners
+          echo "✅ 正向对照通过：未改动的产物溯源有效"
+
+      - name: 反向对照 — 篡改后必须被拒绝
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          # 追加一行无害注释，仅为改变字节从而改变 sha256 摘要。
+          # 这不是恶意代码，只是让摘要失配的最小扰动。
+          cp dist/index.js /tmp/tampered.js
+          printf '\n// canary: benign marker appended to invalidate the digest\n' >> /tmp/tampered.js
+          if gh attestation verify /tmp/tampered.js \
+               --repo "${{ github.repository }}" \
+               --signer-workflow "${{ github.repository }}/.github/workflows/build-release.yml" \
+               >/dev/null 2>&1; then
+            echo "::error::反向对照失败：被篡改的产物竟通过溯源校验，溯源机制失效！"
+            exit 1
+          fi
+          echo "✅ 反向对照通过：篡改产物被正确拒绝（摘要失配）"
+
+  # ---------------------------------------------------------------------------
+  # 部署：只部署"被签名的那一份字节"，阻断式溯源门禁
+  # ---------------------------------------------------------------------------
+  # 【关键修复】此 job 绝不重新构建。旧版在此执行 `npx wrangler deploy`，
+  # 等于从源码另建一份产物上线 —— 被签名的是 build job 的产物，上线的却是
+  # 第三份字节，溯源链对生产环境实际失效（"签了 A、上线 B"）。
+  # 现改为 download-artifact 取回被签名产物 + --no-bundle 直传。
   deploy:
-    name: Deploy (gated, secret-isolated)
-    needs: [build, provenance]
+    name: Deploy (attested bytes only, hard-gated)
+    needs: [build, provenance, canary]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
+      attestations: read   # 只读：门禁校验所需，无签名能力
     environment:
       name: production
     steps:
-      - name: Checkout
+      - name: Checkout（仅取 wrangler 配置与锁文件，不用于构建产物）
         uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -177,32 +255,38 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
-      - name: 安装依赖
-        run: npm ci
+      - name: 安装 wrangler CLI（禁用依赖生命周期脚本）
+        # --ignore-scripts：本 job 持有 CLOUDFLARE_API_TOKEN，绝不允许依赖的
+        # postinstall/prepare 在此执行任意代码窃取密钥。已实测 wrangler 4.120.0
+        # 在 --ignore-scripts 下可正常工作。
+        run: npm ci --ignore-scripts
 
-      - name: 验证溯源存在后再部署（部署门禁）
+      - name: 取回被溯源签名的产物（不重新构建）
+        uses: actions/download-artifact@v4
+        with:
+          name: worker-bundle
+          path: dist
+
+      - name: 阻断式溯源门禁（校验失败即中止，绝不上线未经溯源的字节）
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "✅ Provenance job 已成功完成（needs: provenance 满足）"
-          echo "   溯源已由平台签名并存储于 GitHub Attestations API"
-          echo "   部署源码提交: ${{ github.sha }}"
+          set -euo pipefail
+          # 严格身份绑定：不仅要求"有溯源"，还要求溯源来自本仓库、本工作流、
+          # 本 ref、本 commit，且构建发生在 GitHub 托管 runner 上。
+          gh attestation verify dist/index.js \
+            --repo "${{ github.repository }}" \
+            --signer-workflow "${{ github.repository }}/.github/workflows/build-release.yml" \
+            --source-ref "${{ github.ref }}" \
+            --source-digest "${{ github.sha }}" \
+            --deny-self-hosted-runners
+          echo "✅ 门禁通过：即将上线的字节与被平台签名的产物完全一致"
+          sha256sum dist/index.js
 
-      - name: 部署到 Cloudflare Workers
+      - name: 部署被溯源的产物到 Cloudflare Workers
         env:
-          # 密钥仅在此 job 可见；build/provenance job 无法访问
+          # 密钥仅在此 job 可见；build / provenance / canary job 均无法访问
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: npx wrangler deploy
-
-      - name: 部署后验证溯源（可选审计）
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # 重新构建并验证本次产物的溯源绑定
-          npm run build
-          # 对每个产物验证 attestation（需仓库已启用 artifact attestations）
-          for f in dist/*; do
-            echo "Verifying provenance for: $f"
-            gh attestation verify "$f" --repo "${{ github.repository }}" || \
-              echo "::warning::无法验证 $f 的溯源（可能为非可复现构建）"
-          done
+        # --no-bundle：直传上一步已校验的 bundle，跳过内部构建，
+        # 确保"被验证的字节 == 被部署的字节"。
+        run: npx wrangler deploy dist/index.js --no-bundle

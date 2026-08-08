@@ -60,8 +60,8 @@
   <span class="tag">报告日期: <b>2026-08-09</b></span>
   <span class="tag">标准: <b>SLSA v1.0 Level 3</b></span>
   <span class="tag">对象: <b>slsa-worker 模板</b></span>
-  <span class="tag">基线提交: <b>142468a</b></span>
-  <span class="tag">修订: <b>rev.2（权限校准）</b></span>
+  <span class="tag">基线提交: <b>133fb23</b></span>
+  <span class="tag">修订: <b>rev.3（溯源链修复）</b></span>
 </div>
 
 <div class="notice">
@@ -77,12 +77,29 @@
 <br><span style="color:var(--muted);font-size:13px">附注：该错误建议<b>从未出现在本报告 rev.1 中</b>；rev.1 关于 <code>.github/CODEOWNERS</code> 的路径引用亦本就正确，本次未作"修正"，仅予确认。</span>
 </div>
 
+<div class="warn">
+<b>rev.3 自查修正记录（2026-08-09）：</b>本次修订源于结项前对本项目<b>自身交付物</b>的复核，在 <code>build-release.yml</code> 中发现<b>两处由本报告作者引入的真实缺陷</b>，现已修复。如实披露如下：
+<table style="margin-top:10px">
+<tr><th>缺陷</th><th>问题描述</th><th>处置</th></tr>
+<tr><td><b>A · 溯源链在部署环节断裂</b><br><span style="color:var(--muted);font-size:12px">高危</span></td>
+<td>旧版 <code>deploy</code> job 执行 <code>npm ci</code> + <code>npx wrangler deploy</code>，<b>从源码重新构建并上线</b>，从未取回 <code>build</code> job 产出、且被 <code>provenance</code> 签名的 <code>worker-bundle</code>。结果：被签名的是"影子产物"，与真正上线的字节无因果绑定——<b>签了 A、上线 B</b>，溯源链对生产环境实际失效。</td>
+<td><span class="badge b-ok">已修复</span><br><span style="font-size:12px">改为 <code>download-artifact</code> 取回被签名产物 + <code>wrangler deploy dist/index.js --no-bundle</code> 直传</span></td></tr>
+<tr><td><b>B · 装饰性安全控制</b><br><span style="color:var(--muted);font-size:12px">高</span></td>
+<td>①「验证溯源存在后再部署（部署门禁）」步骤<b>仅有 echo</b>，零实际校验（真门禁其实是 <code>needs</code> 依赖，但步骤名制造了"存在主动校验"的错觉）；②「部署后验证溯源」重新构建第三份产物后校验，且以 <code>|| echo "::warning::"</code> 兜底，<b>永不失败</b>，既不验证已部署字节也不阻断。</td>
+<td><span class="badge b-ok">已修复</span><br><span style="font-size:12px">两步均删除，替换为单一<b>阻断式</b>门禁（<code>set -euo pipefail</code>，无兜底）</span></td></tr>
+<tr><td><b>C · 死代码</b><br><span style="color:var(--muted);font-size:12px">低</span></td>
+<td><code>build.outputs.hashes</code> 仅被注释掉的 slsa-github-generator 备选方案引用。</td>
+<td><span class="badge b-warn">保留并注明</span><br><span style="font-size:12px">保留以备切换备选方案，已加注释说明主路径不消费它</span></td></tr>
+</table>
+<span style="color:var(--muted);font-size:13px">另：曾怀疑 <code>ci.yml</code> 与 <code>build-release.yml</code> 共用 <code>cache: npm</code> 构成跨工作流缓存投毒，查 GitHub 官方文档后<b>确认不成立</b>（PR 缓存 scoped to <code>refs/pull/.../merge</code>，"cannot be restored by the base branch"），<b>故不列为风险</b>——不制造假警报。</span>
+</div>
+
 <h2>1. 执行摘要</h2>
 <div class="card">
 <p>针对原始空工作区，从零搭建了一套符合 SLSA Level 3 要求的 Cloudflare Workers 项目骨架与 GitHub Actions 构建流水线。核心控制全部落地于版本化配置文件，并已通过本地真实验证（typecheck + wrangler 构建）。</p>
 <div class="score">
   <div class="score-item"><div class="score-num" style="color:var(--green)">4/4</div><div class="score-lbl">SLSA L3 支柱已落地</div></div>
-  <div class="score-item"><div class="score-num" style="color:var(--green)">2/2</div><div class="score-lbl">本地验证通过</div></div>
+  <div class="score-item"><div class="score-num" style="color:var(--green)">19/19</div><div class="score-lbl">流水线安全断言（机器校验）</div></div>
   <div class="score-item"><div class="score-num" style="color:var(--amber)">0</div><div class="score-lbl">线上 GHA 运行（待推送）</div></div>
   <div class="score-item"><div class="score-num" style="color:var(--amber)">6</div><div class="score-lbl">需手动配置项（第4节）</div></div>
 </div>
@@ -96,7 +113,40 @@
 <tr><td>类型检查</td><td><code>npm run typecheck</code></td><td><span class="badge b-ok">PASS</span></td><td>tsc --noEmit, exit 0</td></tr>
 <tr><td>Wrangler 构建</td><td><code>npm run build</code></td><td><span class="badge b-ok">PASS</span></td><td>产出 dist/index.js (1272B) + sourcemap</td></tr>
 <tr><td>Git 初始化</td><td><code>git init -b main</code></td><td><span class="badge b-ok">PASS</span></td><td>2 commits, 12 tracked files</td></tr>
+<tr><td>无重建部署路径<br><span style="color:var(--muted);font-size:12px">rev.3 新增</span></td><td><code>wrangler deploy dist/index.js --no-bundle --dry-run</code></td><td><span class="badge b-ok">PASS</span></td><td>exit 0；Upload 1.24 KiB；DO 绑定 <code>env.COUNTER (CounterDO)</code> 正确保留</td></tr>
+<tr><td>密钥 job 禁生命周期脚本<br><span style="color:var(--muted);font-size:12px">rev.3 新增</span></td><td><code>npm ci --ignore-scripts</code></td><td><span class="badge b-ok">PASS</span></td><td>added 39 packages, exit 0；wrangler 4.120.0 可用；后续 dry-run 亦通过</td></tr>
+<tr><td>gh CLI 门禁参数真实性<br><span style="color:var(--muted);font-size:12px">rev.3 新增</span></td><td>查证 <code>gh attestation verify</code> 官方手册</td><td><span class="badge b-ok">PASS</span></td><td><code>--repo</code>/<code>--owner</code> 至少必需其一；<code>--signer-workflow</code>、<code>--source-ref</code>、<code>--source-digest</code>、<code>--deny-self-hosted-runners</code> 均确认存在</td></tr>
+<tr><td>流水线安全断言<br><span style="color:var(--muted);font-size:12px">rev.3 新增</span></td><td>js-yaml 解析 + 19 项断言脚本</td><td><span class="badge b-ok">19/19 PASS</span></td><td>见下表</td></tr>
 </table>
+
+<h3>流水线安全断言明细（机器校验，非目视检查）</h3>
+<div class="card">
+<p style="font-size:13px;color:var(--muted)">用 <code>js-yaml</code> 真实解析 <code>build-release.yml</code>，对权限矩阵与关键步骤逐项断言。解析器安装于隔离工作区，<b>未写入项目 <code>package.json</code> / <code>package-lock.json</code></b>（已核验：项目 devDependencies 仅 3 项，锁文件中 js-yaml 条目数为 0）。</p>
+<pre>--- Job 权限矩阵 ---
+  build        needs=none                            perms={"contents":"read"}
+  provenance   needs="build"                         perms={"contents":"read","id-token":"write","attestations":"write"}
+  canary       needs="provenance"                    perms={"contents":"read","attestations":"read"}
+  deploy       needs=["build","provenance","canary"] perms={"contents":"read","attestations":"read"}
+
+--- 安全断言（全部 PASS）---
+  build job 无 id-token（无法申请 Sigstore 证书）
+  build job 无 attestations 写权限
+  provenance job 持有 id-token: write / attestations: write
+  canary job 仅 attestations: read（无签名能力）
+  deploy job 仅 attestations: read（无签名能力）
+  deploy 依赖 provenance / 依赖 canary（溯源机制自检为前置）
+  deploy 使用 download-artifact 取回被签名产物
+  deploy 不再重新构建（无 npm run build）
+  deploy 用 --no-bundle 直传已校验字节
+  deploy 安装依赖时禁用生命周期脚本
+  deploy 门禁为阻断式（无 || echo warning 兜底）
+  deploy 门禁绑定 signer-workflow / source-digest / deny-self-hosted-runners
+  build 含 OIDC 不可达运行时探针
+  canary 含正向对照 / 反向对照
+
+全部 19 项断言通过 (exit 0)</pre>
+<p style="font-size:13px;color:var(--muted)"><b>此断言证明的边界：</b>它验证的是<b>权限声明的静态结构</b>与步骤构成，<b>不</b>证明 GitHub 运行时确实不下发 OIDC 令牌——后者属平台信任假设，故另以 <code>build</code> job 内的运行时探针在真实 GHA 中补证。</p>
+</div>
 
 <div class="warn">
 <b>未验证项（如实标注）：</b>GitHub Actions 工作流（<code>build-release.yml</code>）的 provenance 生成与签名<b>尚未在真实 GHA 运行中验证</b>——本地环境无法执行 GitHub Actions。
@@ -131,8 +181,12 @@
 <tr><td>编译产出后自动生成 Provenance</td><td><code>actions/attest-build-provenance@v4.2.2</code> 生成 in-toto SLSA provenance predicate</td><td><span class="badge b-warn">已配置·未线上验证</span></td></tr>
 <tr><td>签名由平台全权托管</td><td>Sigstore keyless（OIDC），签名在 GitHub 受信环境完成，构建脚本不参与</td><td><span class="badge b-warn">已配置·未线上验证</span></td></tr>
 <tr><td>溯源不可篡改、可验证</td><td>上传至 GitHub Attestations API；可 <code>gh attestation verify dist/index.js --repo &lt;org&gt;/&lt;repo&gt;</code></td><td><span class="badge b-warn">已配置·未线上验证</span></td></tr>
-<tr><td>溯源绑定具体产物摘要</td><td><code>subject-path: dist/*</code> 自动计算 sha256 绑定</td><td><span class="badge b-ok">已落地</span></td></tr>
+<tr><td>溯源绑定具体产物摘要</td><td><code>subject-path: dist/*</code> 由 <code>provenance</code> job <b>独立重算</b> sha256——不消费 <code>build</code> job 上报的摘要，故被投毒的构建无法通过"谎报摘要"影响绑定</td><td><span class="badge b-ok">已落地</span></td></tr>
+<tr><td><b>产物-部署一致性</b><br><span style="color:var(--muted);font-size:12px">rev.3 新增</span></td><td><code>deploy</code> job <b>不重新构建</b>：<code>download-artifact</code> 取回被签名的同一份字节 → 阻断式 <code>gh attestation verify</code> → <code>wrangler deploy dist/index.js --no-bundle</code> 直传。确保<b>被验证的字节 == 被部署的字节</b></td><td><span class="badge b-ok">已落地</span><br><span style="font-size:12px">dry-run 本地 PASS</span></td></tr>
+<tr><td><b>阻断式门禁（非装饰性）</b><br><span style="color:var(--muted);font-size:12px">rev.3 新增</span></td><td><code>set -euo pipefail</code>，<b>无 <code>|| echo warning</code> 兜底</b>；同时绑定 <code>--signer-workflow</code> / <code>--source-ref</code> / <code>--source-digest</code> / <code>--deny-self-hosted-runners</code>，校验失败即中止部署</td><td><span class="badge b-warn">已配置·未线上验证</span></td></tr>
+<tr><td><b>负向自检（canary）</b><br><span style="color:var(--muted);font-size:12px">rev.3 新增</span></td><td>独立 <code>canary</code> job 做<b>正向对照</b>（原始产物须通过）与<b>反向对照</b>（追加一行无害注释使摘要失配后，校验<b>必须</b>失败）；<code>build</code> job 内探测 <code>ACTIONS_ID_TOKEN_REQUEST_URL/TOKEN</code> 是否为空，把"声明层面无 id-token"升级为运行时实证。<code>deploy</code> 依赖 <code>canary</code></td><td><span class="badge b-warn">已配置·未线上验证</span></td></tr>
 </table>
+<div class="ok"><b>为何加 canary：</b>"配置了校验"与"校验真的有效"是两件事。若篡改后仍能通过校验，deploy 的门禁就形同虚设。反向对照用<b>非破坏性</b>手段（追加一行注释改变 sha256）提供阳性信号，<b>不涉及任何真实恶意代码</b>。</div>
 <p style="color:var(--muted);font-size:13px">备选方案：工作流注释保留 <code>slsa-framework/slsa-github-generator/.../generator_generic_slsa3.yml@v2.1.0</code>（SLSA 参考实现，不可伪造性更强，但已进入维护模式）。主路径采用持续维护的 GitHub Attestations。</p>
 
 <h3>④ 版本控制与审计留痕（Source Verification）</h3>
@@ -240,7 +294,7 @@ gh api repos/&lt;org&gt;/&lt;repo&gt;/actions/permissions/workflow</pre>
 <h2>5. 已交付文件清单</h2>
 <table class="filelist">
 <tr><th>文件</th><th>用途</th></tr>
-<tr><td>.github/workflows/build-release.yml</td><td>SLSA L3 构建与发布流水线（build→provenance→deploy）</td></tr>
+<tr><td>.github/workflows/build-release.yml</td><td>SLSA L3 构建与发布流水线（build → provenance → <b>canary</b> → deploy，rev.3 起 deploy 只部署 attested 字节）</td></tr>
 <tr><td>.github/workflows/ci.yml</td><td>PR 持续集成（typecheck + build）</td></tr>
 <tr><td>.github/CODEOWNERS</td><td>关键路径审查者声明</td></tr>
 <tr><td>src/index.ts</td><td>Worker 入口 + 持久化计数器 Durable Object</td></tr>
@@ -256,11 +310,18 @@ gh api repos/&lt;org&gt;/&lt;repo&gt;/actions/permissions/workflow</pre>
 <h2>6. 待加固项（未声称已修复）</h2>
 <table>
 <tr><th>项</th><th>说明</th><th>优先级</th></tr>
-<tr><td>产物-部署一致性</td><td>当前 <code>wrangler deploy</code> 重新打包；需 <code>--no-bundle</code> 部署预构建 attested bundle</td><td><span class="badge b-todo">高</span></td></tr>
+<tr><td>产物-部署一致性</td><td><s>当前 <code>wrangler deploy</code> 重新打包</s> → <b>rev.3 已修复</b>：改为 <code>download-artifact</code> + <code>--no-bundle</code> 直传 attested bundle，并加阻断式门禁</td><td><span class="badge b-ok">已修复</span></td></tr>
 <tr><td>Action SHA 锁定</td><td>当前用版本标签（<code>actions/attest-build-provenance@v4.2.2</code>、<code>actions/checkout@v4</code> 等）；SLSA 建议锁定不可变 commit SHA 防供应链劫持</td><td><span class="badge b-todo">高</span></td></tr>
 <tr><td>依赖更新自动化</td><td>建议启用 Dependabot + 自动 PR 审查</td><td><span class="badge b-warn">中</span></td></tr>
-<tr><td>线上验证</td><td>推送至 GitHub 触发真实构建，确认 attestation 生成成功</td><td><span class="badge b-todo">高</span></td></tr>
+<tr><td>线上验证</td><td>推送至 GitHub 触发真实构建，确认 attestation 生成成功、canary 正反向对照均通过</td><td><span class="badge b-todo">高</span></td></tr>
+<tr><td>严格身份绑定首跑排查<br><span style="color:var(--muted);font-size:12px">rev.3 新增</span></td><td>deploy 门禁同时绑定 <code>--signer-workflow</code>/<code>--source-ref</code>/<code>--source-digest</code>/<code>--deny-self-hosted-runners</code>。绑定越严，首跑失败的可能越高。<b>首跑若被拦截，请逐项排查而非直接放宽</b>——拦截本身可能是真实信号</td><td><span class="badge b-warn">中</span></td></tr>
+<tr><td>可信构建器（trusted builder）</td><td>GitHub 官方手册明确警示："should an attacker gain access to your workflow's execution context, they could then falsify the contents of the <code>statement.predicate</code>"，并建议改用在 reusable workflow 内完成构建+签名的"trusted builder"模式。当前架构已通过<b>剥夺 build job 的 id-token</b> 大幅缓解，但 predicate 中由构建上下文填充的字段仍非绝对可信</td><td><span class="badge b-warn">中</span></td></tr>
 </table>
+
+<div class="warn">
+<b>必须澄清的保证边界（防止误读为"已安全"）：</b>SLSA 溯源保证的是<b>来源不可伪造</b>，<b>不是产物无害</b>。若构建过程被投毒，流水线会产出一个<b>被真实签名的恶意产物</b>——签名如实声明"它确实来自本仓库本提交"，校验也会通过。
+<br><span style="color:var(--muted);font-size:13px">因此 "build job 无 id-token" 杜绝的是<b>伪造溯源</b>（谎称产物来自别处），而非<b>供应链攻击本身</b>。抵御后者需叠加：依赖审计、CODEOWNERS 双人审查、Dependabot、以及上文的 trusted builder 模式。</span>
+</div>
 
 <h2>7. 回滚方案</h2>
 <div class="card">

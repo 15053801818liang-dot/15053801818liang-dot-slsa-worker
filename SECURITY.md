@@ -36,7 +36,10 @@
 | 编译产出后自动生成 SLSA Provenance | `actions/attest-build-provenance@v4.2.2` 生成 in-toto SLSA provenance predicate | ✅ 已落地 |
 | 签名由平台全权托管 | Sigstore keyless（OIDC），签名过程在 GitHub 受信环境内完成，构建脚本不参与签名 | ✅ 已落地 |
 | 溯源不可篡改、可验证 | 溯源上传至 GitHub Attestations API；可用 `gh attestation verify` 验证 | ✅ 已落地 |
-| 溯源绑定具体产物摘要 | `subject-path: dist/*`，自动计算 sha256 并绑定 | ✅ 已落地 |
+| 溯源绑定具体产物摘要 | `subject-path: dist/*`，由 `provenance` job **独立重算** sha256（不消费 `build` job 上报的摘要） | ✅ 已落地 |
+| **产物-部署一致性** | `deploy` job **不重新构建**：`download-artifact` 取回被签名的同一份字节 → 阻断式 `gh attestation verify` → `wrangler deploy dist/index.js --no-bundle` 直传 | ✅ 已落地 |
+| **阻断式门禁** | `set -euo pipefail`，无 `\|\| echo warning` 兜底；绑定 `--signer-workflow` / `--source-ref` / `--source-digest` / `--deny-self-hosted-runners` | ⚙️ 已配置·未线上验证 |
+| **负向自检（canary）** | 独立 `canary` job 做正向对照（原始产物须通过）+ 反向对照（篡改后**必须**失败）；`build` job 内探测 OIDC 变量为空以运行时实证能力剥夺 | ⚙️ 已配置·未线上验证 |
 
 **备选方案**：项目内注释保留了 `slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0`（SLSA 参考实现，构建在受信任 reusable workflow 内执行，不可伪造性更强）。该项目已进入维护模式，故主路径采用 GitHub Attestations。
 
@@ -45,7 +48,9 @@
 gh attestation verify dist/index.js --repo <org>/<repo>
 ```
 
-**残留风险**：Workers 部署由 `wrangler deploy` 重新打包，部署字节与溯源产物在非可复现构建下可能不一致。完整产物-部署一致性需 `wrangler deploy --no-bundle` 部署预构建 bundle（见下文"待加固"）。
+**已修复的历史缺陷**：早期版本的 `deploy` job 执行 `npm ci` + `npx wrangler deploy`，**从源码重新构建并上线**，导致被签名的是"影子产物"、上线的却是另一份字节（签了 A、上线 B），溯源链对生产环境实际失效。现已改为取回 attested 产物 + `--no-bundle` 直传，并以阻断式门禁把关。
+
+**保证边界（重要，勿误读）**：SLSA 溯源保证的是**来源不可伪造**，**不是产物无害**。若构建过程被投毒，流水线会产出一个**被真实签名的恶意产物**——签名如实声明"它确实来自本仓库本提交"，校验也会通过。"`build` job 无 `id-token`" 杜绝的是**伪造溯源**，而非供应链攻击本身。抵御后者需叠加依赖审计、CODEOWNERS 双人审查、Dependabot，以及 GitHub 官方建议的 trusted builder 模式。
 
 ---
 
@@ -110,7 +115,10 @@ gh attestation verify dist/index.js --repo <org>/<repo>
 
 | 项 | 说明 | 优先级 |
 |---|---|---|
-| 产物-部署一致性 | 当前 `wrangler deploy` 重新打包；需改 `--no-bundle` 部署预构建 attested bundle | 高 |
-| Action SHA 锁定 | 当前使用版本标签（`@v4`）；SLSA 建议锁定到 commit SHA 防供应链劫持 | 高 |
+| ~~产物-部署一致性~~ | **已修复**：`download-artifact` + `--no-bundle` 直传 attested bundle + 阻断式门禁 | ✅ |
+| Action SHA 锁定 | 当前使用版本标签（`actions/attest-build-provenance@v4.2.2`、`actions/checkout@v4` 等）；SLSA 建议锁定到 commit SHA 防供应链劫持 | 高 |
+| 线上验证 | 推送后触发真实 GHA，确认 attestation 生成、canary 正反向对照均通过 | 高 |
+| 严格身份绑定首跑排查 | 门禁同时绑定 signer-workflow / source-ref / source-digest / deny-self-hosted-runners，绑定越严首跑越易被拦。**若被拦截请逐项排查而非直接放宽**——拦截可能是真实信号 | 中 |
+| 可信构建器（trusted builder） | GitHub 官方警示：攻击者若取得 workflow 执行上下文，可伪造 `statement.predicate` 内容。建议改用在 reusable workflow 内完成构建+签名的模式 | 中 |
 | 依赖锁文件 | 已生成 `package-lock.json`；建议启用 Dependabot/Renovate + 自动 PR 审查 | 中 |
 | 可复现构建 | Workers bundle 含时间戳等非确定性因素；需 wrangler reproducible 模式 | 中 |
