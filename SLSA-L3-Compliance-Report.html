@@ -60,13 +60,21 @@
   <span class="tag">报告日期: <b>2026-08-09</b></span>
   <span class="tag">标准: <b>SLSA v1.0 Level 3</b></span>
   <span class="tag">对象: <b>slsa-worker 模板</b></span>
-  <span class="tag">Git 提交: <b>569f77f</b></span>
+  <span class="tag">基线提交: <b>142468a</b></span>
+  <span class="tag">修订: <b>rev.2（权限校准）</b></span>
 </div>
 
 <div class="notice">
 <b>诚实声明：</b>本报告所记录的工作区原为<b>空目录</b>（无任何项目代码、CI/CD 配置或 Git 仓库）。
 本报告未对"不存在的流水线"出具虚假合规结论。所评估对象为<b>本次从零搭建</b>的 SLSA L3 加固模板。
 凡标注"已验证"的项均经本地真实执行；凡仅"已配置"的项如实区分，不冒充"已验证"。
+</div>
+
+<div class="warn">
+<b>rev.2 校准记录（2026-08-09）：</b>本次修订源于对一份外部总结稿的核查，纠正了其中一条<b>会削弱安全性的错误建议</b>——
+"将仓库 Workflow permissions 设为 <i>Read and write</i> 并勾选 <i>Allow GitHub Actions to create and approve pull requests</i> 以使 OIDC/Attestations 生效"。
+该建议<b>技术上不成立且扩大攻击面</b>，已在第 4 节以官方文档依据逐条驳正。
+<br><span style="color:var(--muted);font-size:13px">附注：该错误建议<b>从未出现在本报告 rev.1 中</b>；rev.1 关于 <code>.github/CODEOWNERS</code> 的路径引用亦本就正确，本次未作"修正"，仅予确认。</span>
 </div>
 
 <h2>1. 执行摘要</h2>
@@ -76,7 +84,7 @@
   <div class="score-item"><div class="score-num" style="color:var(--green)">4/4</div><div class="score-lbl">SLSA L3 支柱已落地</div></div>
   <div class="score-item"><div class="score-num" style="color:var(--green)">2/2</div><div class="score-lbl">本地验证通过</div></div>
   <div class="score-item"><div class="score-num" style="color:var(--amber)">0</div><div class="score-lbl">线上 GHA 运行（待推送）</div></div>
-  <div class="score-item"><div class="score-num" style="color:var(--amber)">5</div><div class="score-lbl">需手动配置项</div></div>
+  <div class="score-item"><div class="score-num" style="color:var(--amber)">6</div><div class="score-lbl">需手动配置项（第4节）</div></div>
 </div>
 </div>
 
@@ -113,7 +121,7 @@
 <tr><td>签名私钥不暴露给构建脚本</td><td><b>无持久私钥</b>。Sigstore keyless：OIDC 短期证书，证书由 Sigstore CA 签发，构建步骤无法导出私钥</td><td><span class="badge b-ok">已落地</span></td></tr>
 <tr><td>签名权限与构建步骤分离</td><td><code>provenance</code> job 独立持有 <code>id-token: write</code> + <code>attestations: write</code>；<code>build</code> job 仅 <code>contents: read</code>，<b>无 OIDC 权限，无法伪造溯源</b></td><td><span class="badge b-ok">已落地</span></td></tr>
 <tr><td>部署密钥隔离</td><td><code>CLOUDFLARE_API_TOKEN</code> 仅注入 <code>deploy</code> job；build/provenance job 无法访问</td><td><span class="badge b-ok">已落地</span></td></tr>
-<tr><td>全局最小权限</td><td>顶层 <code>permissions: contents: read</code>，各 job 显式声明</td><td><span class="badge b-ok">已落地</span></td></tr>
+<tr><td>全局最小权限</td><td>顶层 <code>permissions: contents: read</code>；各 job 按需显式声明，未声明范围自动为 <code>none</code>。<b>权限提升范围严格限定在单个 job 内，无需放宽仓库全局设置</b>（详见第 4 节反模式警告）</td><td><span class="badge b-ok">已落地</span></td></tr>
 </table>
 <div class="ok"><b>关键设计：</b>build 步骤若被恶意代码污染，因缺少 <code>id-token</code> 权限，仍<b>无法生成伪造溯源</b>——这正是 SLSA L3 "non-falsifiable provenance" 的核心保证。</div>
 
@@ -136,18 +144,97 @@
 <tr><td>源码与日志长期保留</td><td>构建产物 retention-days: 90；GHA 日志默认保留</td><td><span class="badge b-ok">已落地</span></td></tr>
 </table>
 
-<h2>4. 需在 GitHub 仓库层面手动配置（无法仅靠文件完成）</h2>
+<h2>4. 仓库级合规与加固检查表（手动配置项）</h2>
+
+<div class="warn">
+<b>⛔ 反模式警告 — 切勿为"让溯源生效"而放宽全局权限</b>
+<p style="margin:8px 0 4px">流传的一种错误做法是：把 Settings → Actions → General → Workflow permissions 设为 <b>"Read and write permissions"</b>，
+并勾选 <b>"Allow GitHub Actions to create and approve pull requests"</b>，理由是"确保 OIDC 与 Attestations 权限生效"。
+<b>该做法技术上不必要，且直接违反 SLSA L3 的最小权限要求。</b></p>
+<table style="margin-top:10px">
+<tr><th>错误主张</th><th>官方文档事实</th></tr>
+<tr>
+  <td>需放宽全局权限，OIDC/Attestations 才生效</td>
+  <td>权限"初始值取自企业/组织/仓库默认，<b>随后由工作流文件先在 workflow 级、再在 job 级调整</b>"。本流水线已在 <code>provenance</code> job 显式声明 <code>id-token: write</code> + <code>attestations: write</code>，<b>无需放宽仓库默认值</b>。文档明确："拥有仓库写权限者可通过编辑工作流的 <code>permissions</code> 键增删权限。"</td>
+</tr>
+<tr>
+  <td>只读默认会阻断 <code>id-token</code></td>
+  <td><code>id-token</code> <b>从不随读写开关自动授予</b>——未在 <code>permissions</code> 中显式指定的范围一律为 <code>none</code>（"all of those that are not specified are set to <code>none</code>"）。因此它只能靠显式声明获得，放宽全局开关对其无帮助。</td>
+</tr>
+<tr>
+  <td>需勾选"create and approve pull requests"</td>
+  <td>该开关<b>仅控制 <code>GITHUB_TOKEN</code> 能否创建/批准 PR</b>，与溯源生成<b>零关联</b>。个人账号新仓库默认<b>关闭</b>。开启后允许 Actions 自动批准 PR，等于绕过双人审查——<b>直接摧毁 SLSA 的源码审计控制</b>。</td>
+</tr>
+</table>
+<p style="margin:10px 0 0;font-size:13px;color:var(--muted)">依据：GitHub Docs — "Use GITHUB_TOKEN for authentication in workflows" / "Managing GitHub Actions settings for a repository" / "Workflow syntax — permissions"（2026-08-09 核实）。</p>
+</div>
+
+<div class="ok">
+<b>✅ 正确结论：</b>本流水线已通过 <b>Job 级 <code>permissions</code> 声明</b>实现最小权限加固。仓库层面的 Workflow permissions
+应<b>保持或收紧为只读</b>（个人账号新建仓库默认即为 <code>contents</code>/<code>packages</code> 只读），<b>无需任何全局提权</b>。
+<span style="color:var(--muted);font-size:13px">注意：组织内新建仓库的该设置<b>继承自组织配置</b>——若组织默认为 Read and write，应主动<b>收紧为只读</b>，而非"保持默认"。</span>
+</div>
+
+<h3>合规与加固检查表</h3>
+<table>
+<tr><th style="width:34px">#</th><th>配置项</th><th>正确做法</th><th>SLSA 作用</th><th>状态</th></tr>
+<tr>
+  <td>1</td><td><b>推送远程仓库</b></td>
+  <td><code>git remote add origin &lt;url&gt;</code><br><code>git push -u origin main</code></td>
+  <td>建立可信源与构建触发链路</td>
+  <td><span class="badge b-todo">待执行</span></td>
+</tr>
+<tr>
+  <td>2</td><td><b>分支保护（main）</b></td>
+  <td>Settings → Branches → 要求 <b>≥2 人审查</b> + <b>Require review from Code Owners</b> + 必需状态检查（<code>ci.yml</code>）+ <b>禁止 force push / 删除</b> + 对管理员同样强制</td>
+  <td><b>SLSA 源码审计的真正落点</b>——<code>.github/CODEOWNERS</code> 仅在此开启后才实际生效</td>
+  <td><span class="badge b-todo">待执行</span></td>
+</tr>
+<tr>
+  <td>3</td><td><b>强制签名提交</b></td>
+  <td>Settings → Branches → <b>Require signed commits</b></td>
+  <td>提交身份不可抵赖，防伪造作者</td>
+  <td><span class="badge b-todo">待执行</span></td>
+</tr>
+<tr>
+  <td>4</td><td><b>全局 Workflow 权限</b></td>
+  <td><b>保持/收紧为只读</b>；<b>不勾选</b> "Allow GitHub Actions to create and approve pull requests"</td>
+  <td>最小权限；避免 Actions 自动批准 PR 绕过审查</td>
+  <td><span class="badge b-ok">无需变更</span></td>
+</tr>
+<tr>
+  <td>5</td><td><b>Attestations 可用性</b></td>
+  <td>公共仓库开箱可用；<b>私有/内部仓库需 GitHub Enterprise Cloud</b>，否则 <code>attestations: write</code> 将失败</td>
+  <td>溯源存储与验证的前置条件</td>
+  <td><span class="badge b-warn">需确认仓库类型</span></td>
+</tr>
+<tr>
+  <td>6</td><td><b>Action SHA 锁定</b></td>
+  <td>将 <code>@v4.2.2</code> 等标签替换为<b>不可变 commit SHA</b>（标签可被重新指向）</td>
+  <td>防第三方 Action 供应链劫持</td>
+  <td><span class="badge b-todo">待执行</span></td>
+</tr>
+<tr>
+  <td>7</td><td><b>密钥与环境门禁</b></td>
+  <td><code>CLOUDFLARE_API_TOKEN</code> 存为 Secret；建立 <code>production</code> Environment 并配置 <b>required reviewers</b></td>
+  <td>部署密钥隔离 + 人工放行门禁</td>
+  <td><span class="badge b-warn">环境需创建</span></td>
+</tr>
+</table>
+
 <div class="card">
-<ol>
-<li><b>分支保护</b>（main）：要求 2 人审查 + CODEOWNERS + 状态检查 + 禁止 force push</li>
-<li><b>提交签名要求</b>：Settings → Branches → Require signed commits</li>
-<li><b>Actions 通用设置</b>：禁用 <code>pull_request_target</code>；限制 GITHUB_TOKEN 只读；确认 OIDC 已启用</li>
-<li><b>Artifact Attestations 可用性</b>：公共仓库可用；私有/内部需 GitHub Enterprise Cloud</li>
-<li><b>密钥管理</b>：<code>CLOUDFLARE_API_TOKEN</code> 存为 Secret；配置 <code>production</code> Environment + required reviewers</li>
-</ol>
+<p style="margin:0 0 8px"><b>分支保护参考命令</b>（需替换 <code>&lt;org&gt;/&lt;repo&gt;</code>；建议先在 UI 核对后再自动化）：</p>
 <pre>gh api repos/&lt;org&gt;/&lt;repo&gt;/branches/main/protection -X PUT \
-  -f required_pull_request_reviews.required_approving_review_count=2 \
-  -f required_status_checks.strict=true -F enforce_admins=true</pre>
+  -F required_pull_request_reviews.required_approving_review_count=2 \
+  -F required_pull_request_reviews.require_code_owner_reviews=true \
+  -F required_status_checks.strict=true \
+  -F enforce_admins=true \
+  -F allow_force_pushes=false \
+  -F allow_deletions=false
+
+# 校验全局权限未被放宽（应返回 read-only 相关配置）
+gh api repos/&lt;org&gt;/&lt;repo&gt;/actions/permissions/workflow</pre>
+<p style="margin:8px 0 0;font-size:13px;color:var(--muted)">上述命令<b>尚未执行</b>——本地环境无远程仓库，执行结果未知，故不标注任何"已完成"。</p>
 </div>
 
 <h2>5. 已交付文件清单</h2>
@@ -170,7 +257,7 @@
 <table>
 <tr><th>项</th><th>说明</th><th>优先级</th></tr>
 <tr><td>产物-部署一致性</td><td>当前 <code>wrangler deploy</code> 重新打包；需 <code>--no-bundle</code> 部署预构建 attested bundle</td><td><span class="badge b-todo">高</span></td></tr>
-<tr><td>Action SHA 锁定</td><td>当前用版本标签 <code>@v4</code>；SLSA 建议锁定 commit SHA 防供应链劫持</td><td><span class="badge b-todo">高</span></td></tr>
+<tr><td>Action SHA 锁定</td><td>当前用版本标签（<code>actions/attest-build-provenance@v4.2.2</code>、<code>actions/checkout@v4</code> 等）；SLSA 建议锁定不可变 commit SHA 防供应链劫持</td><td><span class="badge b-todo">高</span></td></tr>
 <tr><td>依赖更新自动化</td><td>建议启用 Dependabot + 自动 PR 审查</td><td><span class="badge b-warn">中</span></td></tr>
 <tr><td>线上验证</td><td>推送至 GitHub 触发真实构建，确认 attestation 生成成功</td><td><span class="badge b-todo">高</span></td></tr>
 </table>

@@ -11,6 +11,21 @@
 #                  actions/attest-build-provenance 生成 Sigstore keyless 签名
 #                  build 步骤无 id-token 权限，无法伪造溯源
 #   ④ 源码审计  → 仅由 Git 提交触发；checkout 禁用持久凭据
+# -----------------------------------------------------------------------------
+# 【权限模型说明 — 请勿放宽仓库全局设置】
+#   GITHUB_TOKEN 权限的计算顺序（GitHub 官方文档）：
+#     企业/组织/仓库默认值  →  workflow 顶层 permissions  →  job 级 permissions
+#   本文件在顶层设最小权限 contents:read，仅在确需的 job 内按最小集合提权。
+#   一旦使用 permissions 键，"未列出的范围一律为 none"，因此权限是白名单式的。
+#
+#   ⛔ 反模式：把仓库 Settings → Actions → General → Workflow permissions
+#      改为 "Read and write permissions"，或勾选
+#      "Allow GitHub Actions to create and approve pull requests"。
+#      · id-token / attestations 从不由该开关自动授予，必须显式声明（本文件已声明），
+#        故放宽全局设置对溯源生成毫无帮助；
+#      · "create and approve pull requests" 允许 Actions 自动批准 PR，
+#        会直接绕过 CODEOWNERS 双人审查，摧毁 SLSA 的源码审计控制。
+#   ✅ 正确做法：仓库级 Workflow permissions 保持/收紧为只读即可。
 # =============================================================================
 
 name: Build & Release (SLSA L3)
@@ -40,6 +55,9 @@ jobs:
   build:
     name: Build (ephemeral, isolated)
     runs-on: ubuntu-latest
+    # 【刻意的能力剥夺】此 job 执行不受信的用户构建脚本（npm ci / build），
+    # 因此只给 contents:read —— 没有 id-token，就拿不到 OIDC 令牌，
+    # 也就无法向 Sigstore 申请签名证书。构建步骤即使被投毒也伪造不出溯源。
     permissions:
       contents: read
     outputs:
@@ -89,9 +107,12 @@ jobs:
     name: Provenance (platform-signed, non-falsifiable)
     needs: build
     runs-on: ubuntu-latest
+    # 【唯一持有签名能力的 job】此处不执行任何项目自带脚本，
+    # 只下载产物 + 调用平台托管的 attest action，故可安全授予签名权限。
+    # 这两项权限是 job 级、非全局：仓库 Workflow permissions 无需改为 read-write。
     permissions:
       contents: read
-      id-token: write      # OIDC → Sigstore keyless 签名（短期证书，无私钥）
+      id-token: write      # OIDC → Sigstore keyless 签名（短期证书，无长期私钥落盘）
       attestations: write  # 上传溯源到 GitHub Attestations API
     steps:
       - name: 下载构建产物
