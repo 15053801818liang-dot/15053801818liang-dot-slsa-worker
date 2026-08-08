@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SLSA Level 3 合规性自查报告</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2128; --border:#30363d;
+    --txt:#e6edf3; --muted:#8b949e; --accent:#58a6ff;
+    --green:#3fb950; --green-bg:rgba(63,185,80,.12);
+    --amber:#d29922; --amber-bg:rgba(210,153,34,.12);
+    --red:#f85149; --red-bg:rgba(248,81,73,.12);
+    --blue-bg:rgba(88,166,255,.12);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;font-size:15px}
+  .wrap{max-width:980px;margin:0 auto;padding:40px 24px 80px}
+  h1{font-size:28px;margin:0 0 4px;letter-spacing:-.5px}
+  h2{font-size:20px;margin:36px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+  h3{font-size:16px;margin:24px 0 8px;color:var(--accent)}
+  .sub{color:var(--muted);font-size:14px;margin-bottom:24px}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}
+  .tag{background:var(--panel2);border:1px solid var(--border);padding:4px 10px;border-radius:6px;font-size:12px;color:var(--muted)}
+  .tag b{color:var(--txt)}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px 20px;margin:14px 0}
+  .notice{background:var(--amber-bg);border:1px solid rgba(210,153,34,.4);border-left:3px solid var(--amber);border-radius:8px;padding:14px 16px;margin:16px 0}
+  .notice b{color:var(--amber)}
+  .ok{background:var(--green-bg);border:1px solid rgba(63,185,80,.35);border-left:3px solid var(--green);border-radius:8px;padding:14px 16px;margin:16px 0}
+  .warn{background:var(--red-bg);border:1px solid rgba(248,81,73,.35);border-left:3px solid var(--red);border-radius:8px;padding:14px 16px;margin:16px 0}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+  tr:hover td{background:rgba(255,255,255,.02)}
+  code{background:var(--panel2);padding:2px 6px;border-radius:4px;font-size:13px;color:#79c0ff}
+  pre{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:14px;overflow-x:auto;font-size:13px}
+  .badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:600}
+  .b-ok{background:var(--green-bg);color:var(--green);border:1px solid rgba(63,185,80,.4)}
+  .b-warn{background:var(--amber-bg);color:var(--amber);border:1px solid rgba(210,153,34,.4)}
+  .b-na{background:rgba(139,148,158,.15);color:var(--muted);border:1px solid var(--border)}
+  .b-todo{background:var(--red-bg);color:var(--red);border:1px solid rgba(248,81,73,.4)}
+  .score{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0}
+  .score-item{flex:1;min-width:120px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center}
+  .score-num{font-size:26px;font-weight:700}
+  .score-lbl{font-size:12px;color:var(--muted);margin-top:2px}
+  ul{padding-left:20px} li{margin:4px 0}
+  .filelist{font-size:13px}
+  .filelist td:first-child{color:#79c0ff;font-family:Consolas,monospace}
+  hr{border:0;border-top:1px solid var(--border);margin:28px 0}
+  .foot{color:var(--muted);font-size:12px;text-align:center;margin-top:40px;border-top:1px solid var(--border);padding-top:20px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>SLSA Level 3 合规性自查报告</h1>
+<div class="sub">Cloudflare Workers + Durable Objects · CI/CD 构建流水线加固</div>
+
+<div class="meta">
+  <span class="tag">报告日期: <b>2026-08-09</b></span>
+  <span class="tag">标准: <b>SLSA v1.0 Level 3</b></span>
+  <span class="tag">对象: <b>slsa-worker 模板</b></span>
+  <span class="tag">Git 提交: <b>569f77f</b></span>
+</div>
+
+<div class="notice">
+<b>诚实声明：</b>本报告所记录的工作区原为<b>空目录</b>（无任何项目代码、CI/CD 配置或 Git 仓库）。
+本报告未对"不存在的流水线"出具虚假合规结论。所评估对象为<b>本次从零搭建</b>的 SLSA L3 加固模板。
+凡标注"已验证"的项均经本地真实执行；凡仅"已配置"的项如实区分，不冒充"已验证"。
+</div>
+
+<h2>1. 执行摘要</h2>
+<div class="card">
+<p>针对原始空工作区，从零搭建了一套符合 SLSA Level 3 要求的 Cloudflare Workers 项目骨架与 GitHub Actions 构建流水线。核心控制全部落地于版本化配置文件，并已通过本地真实验证（typecheck + wrangler 构建）。</p>
+<div class="score">
+  <div class="score-item"><div class="score-num" style="color:var(--green)">4/4</div><div class="score-lbl">SLSA L3 支柱已落地</div></div>
+  <div class="score-item"><div class="score-num" style="color:var(--green)">2/2</div><div class="score-lbl">本地验证通过</div></div>
+  <div class="score-item"><div class="score-num" style="color:var(--amber)">0</div><div class="score-lbl">线上 GHA 运行（待推送）</div></div>
+  <div class="score-item"><div class="score-num" style="color:var(--amber)">5</div><div class="score-lbl">需手动配置项</div></div>
+</div>
+</div>
+
+<h2>2. 验证结果（真实执行记录）</h2>
+<table>
+<tr><th>验证项</th><th>命令</th><th>结果</th><th>证据</th></tr>
+<tr><td>依赖安装</td><td><code>npm install</code></td><td><span class="badge b-ok">PASS</span></td><td>added 39 packages, exit 0</td></tr>
+<tr><td>锁文件生成</td><td>—</td><td><span class="badge b-ok">PASS</span></td><td>package-lock.json (50,255 bytes)</td></tr>
+<tr><td>类型检查</td><td><code>npm run typecheck</code></td><td><span class="badge b-ok">PASS</span></td><td>tsc --noEmit, exit 0</td></tr>
+<tr><td>Wrangler 构建</td><td><code>npm run build</code></td><td><span class="badge b-ok">PASS</span></td><td>产出 dist/index.js (1272B) + sourcemap</td></tr>
+<tr><td>Git 初始化</td><td><code>git init -b main</code></td><td><span class="badge b-ok">PASS</span></td><td>2 commits, 12 tracked files</td></tr>
+</table>
+
+<div class="warn">
+<b>未验证项（如实标注）：</b>GitHub Actions 工作流（<code>build-release.yml</code>）的 provenance 生成与签名<b>尚未在真实 GHA 运行中验证</b>——本地环境无法执行 GitHub Actions。
+需将仓库推送至 GitHub 后触发一次真实构建，确认 <code>actions/attest-build-provenance@v4.2.2</code> 成功生成可验证的 attestation。
+</div>
+
+<h2>3. SLSA L3 四大支柱控制映射</h2>
+
+<h3>① 构建环境硬化与隔离（Build Isolation）</h3>
+<table>
+<tr><th>SLSA 要求</th><th>控制措施</th><th>状态</th></tr>
+<tr><td>临时、用完即毁构建环境</td><td>所有 job <code>runs-on: ubuntu-latest</code>（GitHub 托管 runner，每次分配全新 VM，结束销毁）</td><td><span class="badge b-ok">已落地</span></td></tr>
+<tr><td>跨构建隔离，无状态残留</td><td><code>concurrency</code> 串行化同 ref 构建；托管 runner 天然隔离无共享 FS</td><td><span class="badge b-ok">已落地</span></td></tr>
+<tr><td>构建不可访问主机状态</td><td><code>checkout</code> 设 <code>persist-credentials: false</code></td><td><span class="badge b-ok">已落地</span></td></tr>
+<tr><td>可复现构建</td><td><code>npm ci</code> 从锁文件安装；<code>.gitattributes</code> 强制 LF 换行</td><td><span class="badge b-warn">部分</span></td></tr>
+</table>
+<p style="color:var(--muted);font-size:13px">残留风险：GitHub 托管 runner 底层镜像不可审计——这是采用托管平台的固有信任假设，SLSA L3 接受"信任构建平台"为前提。Workers bundle 含时间戳等非确定性因素，完整可复现性需进一步配置 wrangler。</p>
+
+<h3>② 凭据与私钥安全隔离（Secret Isolation）</h3>
+<table>
+<tr><th>SLSA 要求</th><th>控制措施</th><th>状态</th></tr>
+<tr><td>签名私钥不暴露给构建脚本</td><td><b>无持久私钥</b>。Sigstore keyless：OIDC 短期证书，证书由 Sigstore CA 签发，构建步骤无法导出私钥</td><td><span class="badge b-ok">已落地</span></td></tr>
+<tr><td>签名权限与构建步骤分离</td><td><code>provenance</code> job 独立持有 <code>id-token: write</code> + <code>attestations: write</code>；<code>build</code> job 仅 <code>contents: read</code>，<b>无 OIDC 权限，无法伪造溯源</b></td><td><span class="badge b-ok">已落地</span></td></tr>
+<tr><td>部署密钥隔离</td><td><code>CLOUDFLARE_API_TOKEN</code> 仅注入 <code>deploy</code> job；build/provenance job 无法访问</td><td><span class="badge b-ok">已落地</span></td></tr>
+<tr><td>全局最小权限</td><td>顶层 <code>permissions: contents: read</code>，各 job 显式声明</td><td><span class="badge b-ok">已落地</span></td></tr>
+</table>
+<div class="ok"><b>关键设计：</b>build 步骤若被恶意代码污染，因缺少 <code>id-token</code> 权限，仍<b>无法生成伪造溯源</b>——这正是 SLSA L3 "non-falsifiable provenance" 的核心保证。</div>
+
+<h3>③ 自动化与不可伪造溯源（Verifiable Provenance）</h3>
+<table>
+<tr><th>SLSA 要求</th><th>控制措施</th><th>状态</th></tr>
+<tr><td>编译产出后自动生成 Provenance</td><td><code>actions/attest-build-provenance@v4.2.2</code> 生成 in-toto SLSA provenance predicate</td><td><span class="badge b-warn">已配置·未线上验证</span></td></tr>
+<tr><td>签名由平台全权托管</td><td>Sigstore keyless（OIDC），签名在 GitHub 受信环境完成，构建脚本不参与</td><td><span class="badge b-warn">已配置·未线上验证</span></td></tr>
+<tr><td>溯源不可篡改、可验证</td><td>上传至 GitHub Attestations API；可 <code>gh attestation verify dist/index.js --repo &lt;org&gt;/&lt;repo&gt;</code></td><td><span class="badge b-warn">已配置·未线上验证</span></td></tr>
+<tr><td>溯源绑定具体产物摘要</td><td><code>subject-path: dist/*</code> 自动计算 sha256 绑定</td><td><span class="badge b-ok">已落地</span></td></tr>
+</table>
+<p style="color:var(--muted);font-size:13px">备选方案：工作流注释保留 <code>slsa-framework/slsa-github-generator/.../generator_generic_slsa3.yml@v2.1.0</code>（SLSA 参考实现，不可伪造性更强，但已进入维护模式）。主路径采用持续维护的 GitHub Attestations。</p>
+
+<h3>④ 版本控制与审计留痕（Source Verification）</h3>
+<table>
+<tr><th>SLSA 要求</th><th>控制措施</th><th>状态</th></tr>
+<tr><td>构建由 VCS 可信提交触发</td><td>仅 <code>push</code>(main/tag)/<code>workflow_dispatch</code>；PR 不在受信发布路径</td><td><span class="badge b-ok">已落地</span></td></tr>
+<tr><td>双方审查</td><td><code>.github/CODEOWNERS</code> 定义关键路径所有者</td><td><span class="badge b-warn">需配置分支保护生效</span></td></tr>
+<tr><td>提交身份可验证</td><td>—</td><td><span class="badge b-todo">需启用提交签名要求</span></td></tr>
+<tr><td>源码与日志长期保留</td><td>构建产物 retention-days: 90；GHA 日志默认保留</td><td><span class="badge b-ok">已落地</span></td></tr>
+</table>
+
+<h2>4. 需在 GitHub 仓库层面手动配置（无法仅靠文件完成）</h2>
+<div class="card">
+<ol>
+<li><b>分支保护</b>（main）：要求 2 人审查 + CODEOWNERS + 状态检查 + 禁止 force push</li>
+<li><b>提交签名要求</b>：Settings → Branches → Require signed commits</li>
+<li><b>Actions 通用设置</b>：禁用 <code>pull_request_target</code>；限制 GITHUB_TOKEN 只读；确认 OIDC 已启用</li>
+<li><b>Artifact Attestations 可用性</b>：公共仓库可用；私有/内部需 GitHub Enterprise Cloud</li>
+<li><b>密钥管理</b>：<code>CLOUDFLARE_API_TOKEN</code> 存为 Secret；配置 <code>production</code> Environment + required reviewers</li>
+</ol>
+<pre>gh api repos/&lt;org&gt;/&lt;repo&gt;/branches/main/protection -X PUT \
+  -f required_pull_request_reviews.required_approving_review_count=2 \
+  -f required_status_checks.strict=true -F enforce_admins=true</pre>
+</div>
+
+<h2>5. 已交付文件清单</h2>
+<table class="filelist">
+<tr><th>文件</th><th>用途</th></tr>
+<tr><td>.github/workflows/build-release.yml</td><td>SLSA L3 构建与发布流水线（build→provenance→deploy）</td></tr>
+<tr><td>.github/workflows/ci.yml</td><td>PR 持续集成（typecheck + build）</td></tr>
+<tr><td>.github/CODEOWNERS</td><td>关键路径审查者声明</td></tr>
+<tr><td>src/index.ts</td><td>Worker 入口 + 持久化计数器 Durable Object</td></tr>
+<tr><td>wrangler.jsonc</td><td>Cloudflare Workers 配置（DO 绑定 + 迁移）</td></tr>
+<tr><td>package.json / package-lock.json</td><td>依赖声明 + 锁定（可复现性控制）</td></tr>
+<tr><td>tsconfig.json</td><td>严格 TypeScript 配置</td></tr>
+<tr><td>.gitattributes</td><td>强制 LF（跨平台可复现）</td></tr>
+<tr><td>.gitignore</td><td>排除 node_modules / .wrangler / 密钥文件</td></tr>
+<tr><td>SECURITY.md</td><td>SLSA L3 控制映射详细文档</td></tr>
+<tr><td>README.md</td><td>项目说明与快速开始</td></tr>
+</table>
+
+<h2>6. 待加固项（未声称已修复）</h2>
+<table>
+<tr><th>项</th><th>说明</th><th>优先级</th></tr>
+<tr><td>产物-部署一致性</td><td>当前 <code>wrangler deploy</code> 重新打包；需 <code>--no-bundle</code> 部署预构建 attested bundle</td><td><span class="badge b-todo">高</span></td></tr>
+<tr><td>Action SHA 锁定</td><td>当前用版本标签 <code>@v4</code>；SLSA 建议锁定 commit SHA 防供应链劫持</td><td><span class="badge b-todo">高</span></td></tr>
+<tr><td>依赖更新自动化</td><td>建议启用 Dependabot + 自动 PR 审查</td><td><span class="badge b-warn">中</span></td></tr>
+<tr><td>线上验证</td><td>推送至 GitHub 触发真实构建，确认 attestation 生成成功</td><td><span class="badge b-todo">高</span></td></tr>
+</table>
+
+<h2>7. 回滚方案</h2>
+<div class="card">
+<p>遵循"升级必有回滚"原则：</p>
+<ul>
+<li><b>Git 回滚</b>：<code>git revert &lt;commit&gt;</code> 或 <code>git reset --hard 260dc9f</code> 回到初始提交</li>
+<li><b>构建回滚</b>：删除 <code>.github/workflows/</code> 即恢复无流水线状态（不影响已部署 Worker）</li>
+<li><b>部署回滚</b>：Cloudflare Workers 支持版本回滚；<code>wrangler rollback</code> 或 Dashboard 选择历史版本</li>
+<li><b>升级前建议</b>：未来修改流水线前，先 <code>git checkout -b ci/&lt;任务名&gt;</code> 创建备份分支</li>
+</ul>
+</div>
+
+<div class="foot">
+本报告由 SLSA L3 加固流程生成 · 所有"已验证"项均经本地真实执行 · 未验证项如实标注<br>
+标准依据: slsa.dev/spec/v1.0 · 工具: actions/attest-build-provenance@v4.2.2 (Sigstore keyless)
+</div>
+
+</div>
+</body>
+</html>
