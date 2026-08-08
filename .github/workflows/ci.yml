@@ -1,0 +1,54 @@
+# =============================================================================
+# 持续集成（Pull Request 检查）
+# =============================================================================
+# SLSA 溯源仅在 push/tag 时生成（PR 触发器不在受信发布路径上）。
+# PR 阶段执行类型检查与构建验证，确保合并前代码可构建。
+# =============================================================================
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  verify:
+    name: Typecheck & Build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 类型检查
+        run: npm run typecheck
+
+      - name: 构建验证
+        run: npm run build
+
+      - name: 上传构建产物（PR 审查用）
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-build-${{ github.event.pull_request.number }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14

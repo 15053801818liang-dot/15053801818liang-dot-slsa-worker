@@ -1,0 +1,15 @@
+# CODEOWNERS — SLSA L3 源码治理：强制双因子审查
+# 格式: <path> @<owner>
+# 生产关键路径（CI/CD、安全策略、构建配置）必须经指定审查者批准
+
+# CI/CD 流水线与安全配置（最高敏感度）
+/.github/                    @sysops-lead
+/SECURITY.md                 @sysops-lead
+
+# 构建与依赖
+/package.json                @sysops-lead
+/package-lock.json           @sysops-lead
+/wrangler.jsonc              @sysops-lead
+
+# 默认：所有源码
+*                            @sysops-lead

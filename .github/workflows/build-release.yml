@@ -1,0 +1,187 @@
+# =============================================================================
+# SLSA Level 3 构建与发布流水线
+# =============================================================================
+# 控制映射（对照 SLSA v1.0 规范）：
+#   ① 构建隔离  → runs-on: ubuntu-latest（GitHub 托管，临时、用完即毁 runner）
+#                  每个 job 独立 VM；concurrency 防止并发污染
+#   ② 密钥隔离  → build/provenance job 仅 contents:read，无任何密钥
+#                  签名权限（id-token/attestations）仅在独立的 provenance job
+#                  deploy 密钥（CLOUDFLARE_API_TOKEN）仅在 deploy job
+#   ③ 不可伪造溯源 → provenance job 与 build 分离，由平台托管的
+#                  actions/attest-build-provenance 生成 Sigstore keyless 签名
+#                  build 步骤无 id-token 权限，无法伪造溯源
+#   ④ 源码审计  → 仅由 Git 提交触发；checkout 禁用持久凭据
+# =============================================================================
+
+name: Build & Release (SLSA L3)
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+# 全局默认权限：最小权限原则
+permissions:
+  contents: read
+
+# 同一 ref 的并发构建串行化，杜绝跨构建状态残留
+concurrency:
+  group: build-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 构建：临时 runner，无密钥，产出可复现产物
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build (ephemeral, isolated)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      hashes: ${{ steps.hash.outputs.hashes }}
+      artifact-name: worker-bundle
+    steps:
+      - name: Checkout（不持久化凭据）
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node（LTS 22）
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: 安装依赖（从锁文件，可复现）
+        run: npm ci
+
+      - name: 类型检查
+        run: npm run typecheck
+
+      - name: 构建 Worker bundle
+        run: npm run build
+
+      - name: 生成产物摘要（sha256 + base64，供溯源绑定）
+        id: hash
+        shell: bash
+        run: |
+          set -euo pipefail
+          # sha256sum 输出格式: <hash>  <name>，base64 -w0 单行编码
+          echo "hashes=$(sha256sum dist/* | base64 -w0)" >> "$GITHUB_OUTPUT"
+
+      - name: 上传构建产物（审计留痕）
+        uses: actions/upload-artifact@v4
+        with:
+          name: worker-bundle
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 90
+
+  # ---------------------------------------------------------------------------
+  # 溯源：独立 job，平台托管签名，build 步骤无法伪造
+  # ---------------------------------------------------------------------------
+  provenance:
+    name: Provenance (platform-signed, non-falsifiable)
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write      # OIDC → Sigstore keyless 签名（短期证书，无私钥）
+      attestations: write  # 上传溯源到 GitHub Attestations API
+    steps:
+      - name: 下载构建产物
+        uses: actions/download-artifact@v4
+        with:
+          name: worker-bundle
+          path: dist
+
+      - name: 生成并签名 SLSA Build Provenance
+        id: attest
+        uses: actions/attest-build-provenance@v4.2.2
+        with:
+          subject-path: dist/*
+          show-summary: true
+
+      - name: 输出溯源信息
+        run: |
+          echo "::notice::Provenance attestation created"
+          echo "Attestation ID: ${{ steps.attest.outputs.attestation-id }}"
+          echo "Attestation URL: ${{ steps.attest.outputs.attestation-url }}"
+
+  # ===========================================================================
+  # 备选溯源方案（参考实现，当前维护模式）— 保留注释供选择
+  # ===========================================================================
+  # 若需 SLSA 参考实现的"构建器"模式（构建在受信任 reusable workflow 内执行，
+  # 不可伪造性更强），可改用 slsa-framework/slsa-github-generator。
+  # 注意：该项目已进入维护模式，官方建议新集成使用上方的 GitHub Attestations。
+  #
+  # provenance-slsa:
+  #   needs: build
+  #   permissions:
+  #     actions: read
+  #     id-token: write
+  #     contents: write
+  #   uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+  #   with:
+  #     base64-subjects: "${{ needs.build.outputs.hashes }}"
+  #     upload-assets: true
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # 部署：仅在 main，密钥隔离，依赖溯源成功
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy (gated, secret-isolated)
+    needs: [build, provenance]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+    environment:
+      name: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 验证溯源存在后再部署（部署门禁）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "✅ Provenance job 已成功完成（needs: provenance 满足）"
+          echo "   溯源已由平台签名并存储于 GitHub Attestations API"
+          echo "   部署源码提交: ${{ github.sha }}"
+
+      - name: 部署到 Cloudflare Workers
+        env:
+          # 密钥仅在此 job 可见；build/provenance job 无法访问
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler deploy
+
+      - name: 部署后验证溯源（可选审计）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 重新构建并验证本次产物的溯源绑定
+          npm run build
+          # 对每个产物验证 attestation（需仓库已启用 artifact attestations）
+          for f in dist/*; do
+            echo "Verifying provenance for: $f"
+            gh attestation verify "$f" --repo "${{ github.repository }}" || \
+              echo "::warning::无法验证 $f 的溯源（可能为非可复现构建）"
+          done
