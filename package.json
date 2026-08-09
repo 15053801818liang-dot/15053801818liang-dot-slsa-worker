@@ -1,0 +1,13 @@
+{
+  "name": "15053801818liang-dot-slsa-worker",
+  "version": "1.0.0",
+  "description": "Minimal uploaded project scaffold",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
