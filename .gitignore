@@ -24,3 +24,7 @@ Thumbs.db
 # Local env (never commit secrets)
 .env
 .env.local
+
+# Local agent memory & host forensics (never push to remote)
+.workbuddy/
+Agent-Security-Forensics-Report.html
