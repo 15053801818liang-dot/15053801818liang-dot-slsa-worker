@@ -16,11 +16,11 @@
     ]
   },
 
-  // DO 迁移声明（首次部署需要 new_classes）
+  // DO 迁移声明（首次部署需要 new_sqlite_classes — 免费计划必须用 SQLite 后端）
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["CounterDO"]
+      "new_sqlite_classes": ["CounterDO"]
     }
   ],
 
