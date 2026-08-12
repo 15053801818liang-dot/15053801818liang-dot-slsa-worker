@@ -292,6 +292,7 @@ jobs:
           # 若新 Token 非账号绑定型，另需 CLOUDFLARE_ACCOUNT_ID secret。
           # 完整步骤见 .workbuddy/forensics/CF-Migration-Runbook.md 的 Step 0 / Step D。
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         # --no-bundle：直传上一步已校验的 bundle，跳过内部构建，
         # 确保"被验证的字节 == 被部署的字节"。
         run: npx wrangler deploy dist/index.js --no-bundle
