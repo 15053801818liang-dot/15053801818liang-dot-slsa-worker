@@ -237,7 +237,9 @@ jobs:
     name: Deploy (attested bytes only, hard-gated)
     needs: [build, provenance, canary]
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Task 16: 生产部署仅允许显式 workflow_dispatch(main) 触发；
+    # 普通 main push 只负责 build → provenance → canary，不再隐式授权部署。
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
       attestations: read   # 只读：门禁校验所需，无签名能力
