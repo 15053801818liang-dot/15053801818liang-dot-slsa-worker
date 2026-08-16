@@ -41,6 +41,9 @@ jobs:
       - name: 类型检查
         run: npm run typecheck
 
+      - name: 单元测试（失败即 CI 失败，不允许 continue-on-error）
+        run: npm test
+
       - name: 构建验证
         run: npm run build
 
