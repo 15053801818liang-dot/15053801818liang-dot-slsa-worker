@@ -45,10 +45,12 @@ on:
 permissions:
   contents: read
 
-# 同一 ref 的并发构建串行化，杜绝跨构建状态残留
+# 按事件类型 + ref 隔离调度：main push 不得占用或替换显式部署队列。
+# queue: max 保留多个 pending 运行；cancel-in-progress: false 保留正在运行的任务。
 concurrency:
-  group: build-release-${{ github.ref }}
+  group: build-release-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
+  queue: max
 
 env:
   NODE_VERSION: '22'
